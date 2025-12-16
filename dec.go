@@ -135,7 +135,7 @@ func (d *Decoder) Decode(in, out []byte) (n int, err error) {
 		return 0, errors.New(plainStrError(errNo))
 	}
 
-	if d.SampleRate == 0 {
+	if d.SampleRate == 0 && bytesDecoded > 0 {
 		if err = d.getFormat(); err != nil {
 			return 0, err
 		}
