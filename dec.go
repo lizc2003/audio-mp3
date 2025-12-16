@@ -49,6 +49,8 @@ import (
 	"unsafe"
 )
 
+// Decoder represents an MP3 decoder instance wrapping mpg123.
+// It is NOT safe for concurrent use.
 type Decoder struct {
 	handle         *C.mpg123_handle
 	SampleRate     int
