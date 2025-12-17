@@ -41,35 +41,51 @@ var (
 	ErrorUnknown                = errors.New("unknown error")
 )
 
+// EncoderConfig specifies MP3 encoding parameters.
 type EncoderConfig struct {
-	//  sets input sample rate in Hz
-	//  default is 44100
+	// SampleRate sets input sample rate in Hz.
+	// Default is 44100.
 	SampleRate int
-	//  sets number of channels in input stream
-	//  default is 2
+
+	// NumChannels sets number of channels in input stream.
+	// Default is 2 (stereo).
 	NumChannels int
-	//  bitrate in kbps.
-	//  32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320
+
+	// Bitrate in kbps for CBR encoding.
+	// Supported values: 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320
+	// Default is 128.
 	Bitrate int
-	//  quality=0..9.  0=best (very slow).  9=worst.
-	//  recommended:  2     near-best quality, not too slow
-	//                5     good quality, fast
-	//                7     ok quality, really fast
+
+	// Quality is the encoding quality level (0-9).
+	// 0 = best quality (very slow)
+	// 2 = near-best quality, not too slow (recommended)
+	// 5 = good quality, fast
+	// 7 = ok quality, really fast
+	// 9 = worst quality
+	// Default is 2.
 	Quality int
-	//  sets VBR mode
+
+	// VbrMode sets the VBR (Variable Bit Rate) mode.
+	// Default is VbrModeOff (CBR).
 	VbrMode VBRMode
-	//  sets output audio mode
-	//  default: lame picks based on compression ration and input channels
+
+	// MpegMode sets the output audio mode.
+	// Default: LAME picks based on compression ratio and input channels.
 	MpegMode MpegMode
 }
 
+// Encoder is an MP3 encoder instance wrapping the LAME library.
+// It encodes PCM audio data to MP3 format.
+// Note: Encoder is NOT safe for concurrent use.
 type Encoder struct {
 	handle      *C.lame_global_flags
-	remainData  []byte
+	remainData  []byte // Buffer for incomplete sample frames
 	NumChannels int
 	FrameLength int
 }
 
+// NewEncoder creates a new MP3 encoder with the given configuration.
+// If config is nil or has zero values, defaults will be used.
 func NewEncoder(c *EncoderConfig) (*Encoder, error) {
 	h := C.lame_init()
 	if h == nil {
@@ -84,7 +100,6 @@ func NewEncoder(c *EncoderConfig) (*Encoder, error) {
 		C.lame_close(h)
 		return nil, err
 	}
-	enc.NumChannels = c.NumChannels
 
 	return enc, nil
 }
@@ -96,6 +111,10 @@ func (enc *Encoder) Close() {
 	}
 }
 
+// Encode encodes PCM audio data to MP3 format.
+// in: input PCM buffer (16-bit signed samples)
+// out: output buffer for MP3 data (should be at least EstimateOutBufBytes(len(in)))
+// Returns: number of MP3 bytes written to out buffer
 func (enc *Encoder) Encode(in, out []byte) (n int, err error) {
 	szIn := len(in)
 	szOut := len(out)
@@ -144,6 +163,10 @@ func (enc *Encoder) Encode(in, out []byte) (n int, err error) {
 	return int(nWr), nil
 }
 
+// Flush flushes the internal encoder buffer to get remaining MP3 data.
+// Should be called after all input data has been encoded.
+// out: output buffer for remaining MP3 data
+// Returns: number of MP3 bytes written to out buffer
 func (enc *Encoder) Flush(out []byte) (n int, err error) {
 	szOut := len(out)
 	if szOut < enc.EstimateOutBufBytes(0) {
@@ -193,10 +216,6 @@ func (enc *Encoder) initParams(c *EncoderConfig) error {
 	if errNo < 0 {
 		return toError(errNo)
 	}
-	errNo = C.lame_set_brate(handle, C.int(c.Bitrate))
-	if errNo < 0 {
-		return toError(errNo)
-	}
 	if c.VbrMode != VbrModeOff {
 		errNo = C.lame_set_VBR(handle, C.vbr_mode(c.VbrMode))
 		if errNo < 0 {
@@ -217,6 +236,7 @@ func (enc *Encoder) initParams(c *EncoderConfig) error {
 		}
 	}
 	if c.MpegMode > 0 {
+		// MpegMode constants are offset by +1 to avoid conflict with C enum values
 		errNo = C.lame_set_mode(handle, C.MPEG_mode(c.MpegMode-1))
 		if errNo < 0 {
 			return toError(errNo)
@@ -233,6 +253,7 @@ func (enc *Encoder) initParams(c *EncoderConfig) error {
 		return toError(frameSize)
 	}
 	enc.FrameLength = int(frameSize)
+	enc.NumChannels = c.NumChannels
 
 	return nil
 }
