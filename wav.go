@@ -13,6 +13,7 @@ const (
 
 // EncodeFromWav encodes a WAV audio stream into mp3 format.
 // This function parses the WAV header to extract SampleRate and MaxChannels, overriding the values in config.
+// If writer implements io.WriteSeeker, the Xing/LAME tag will be properly written at the beginning.
 func EncodeFromWav(wavStream io.Reader, writer io.Writer, config *EncoderConfig) (totalBytes int, totalFrames int, sampleRate int, err error) {
 	pcmSize, sampleRate, numChannels, bitsPerSample, err := ParseWavHeader(wavStream)
 	if err != nil {
@@ -20,6 +21,13 @@ func EncodeFromWav(wavStream io.Reader, writer io.Writer, config *EncoderConfig)
 	}
 	if bitsPerSample != SampleBitDepth {
 		return 0, 0, 0, fmt.Errorf("unsupported bits per sample: %d (only 16-bit supported)", bitsPerSample)
+	}
+
+	seeker, _ := writer.(io.WriteSeeker)
+	if seeker != nil {
+		config.IsWriteVbrTag = true
+	} else {
+		config.IsWriteVbrTag = false
 	}
 
 	config.SampleRate = sampleRate
@@ -74,6 +82,30 @@ func EncodeFromWav(wavStream io.Reader, writer io.Writer, config *EncoderConfig)
 	totalFrames, err = encoder.GetFrameNum()
 	if err != nil {
 		return 0, 0, 0, err
+	}
+
+	// Write Xing/LAME tag if writer supports seeking
+	if seeker != nil {
+		lameTag, tagErr := encoder.GetLameTagFrame()
+		if tagErr != nil {
+			return 0, 0, 0, fmt.Errorf("get LAME tag failed: %w", tagErr)
+		}
+
+		if len(lameTag) > 0 {
+			if _, seekErr := seeker.Seek(0, io.SeekStart); seekErr != nil {
+				return 0, 0, 0, fmt.Errorf("seek to write LAME tag failed: %w", seekErr)
+			}
+
+			// Write the LAME tag frame (replaces placeholder)
+			if _, writeErr := seeker.Write(lameTag); writeErr != nil {
+				return 0, 0, 0, fmt.Errorf("write LAME tag failed: %w", writeErr)
+			}
+
+			// Seek back to end
+			if _, seekErr := seeker.Seek(0, io.SeekEnd); seekErr != nil {
+				return 0, 0, 0, fmt.Errorf("seek to end failed: %w", seekErr)
+			}
+		}
 	}
 
 	return totalBytes, totalFrames, sampleRate, nil

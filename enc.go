@@ -72,6 +72,10 @@ type EncoderConfig struct {
 	// MpegMode sets the output audio mode.
 	// Default: LAME picks based on compression ratio and input channels.
 	MpegMode MpegMode
+
+	// Enable VBR/Info tag writing (includes Xing header for VBR, Info header for CBR)
+	// This inserts a placeholder frame at the beginning which should be updated later
+	IsWriteVbrTag bool
 }
 
 // Encoder is an MP3 encoder instance wrapping the LAME library.
@@ -190,6 +194,20 @@ func (enc *Encoder) GetFrameNum() (int, error) {
 	return int(frameNum), nil
 }
 
+// GetLameTagFrame gets the Xing/LAME VBR/Info tag frame.
+// This should be called after Flush() to get the complete tag with final statistics.
+// The tag frame should replace the placeholder frame at the beginning of the MP3 stream.
+// Returns the tag frame data, or nil if VBR tagging is disabled.
+func (enc *Encoder) GetLameTagFrame() ([]byte, error) {
+	maxTagSize := C.size_t(32768)
+	tagBuf := make([]byte, maxTagSize)
+	n := C.lame_get_lametag_frame(enc.handle, (*C.uchar)(unsafe.Pointer(&tagBuf[0])), maxTagSize)
+	if n > maxTagSize {
+		return nil, errors.New("lametag buffer too small")
+	}
+	return tagBuf[:n], nil
+}
+
 func (enc *Encoder) EstimateOutBufBytes(inBytes int) int {
 	//
 	// From lame.h:
@@ -247,6 +265,15 @@ func (enc *Encoder) initParams(c *EncoderConfig) error {
 		if errNo < 0 {
 			return toError(errNo)
 		}
+	}
+
+	nTemp := C.int(0)
+	if c.IsWriteVbrTag {
+		nTemp = 1
+	}
+	errNo = C.lame_set_bWriteVbrTag(handle, nTemp)
+	if errNo < 0 {
+		return toError(errNo)
 	}
 
 	errNo = C.lame_init_params(handle)

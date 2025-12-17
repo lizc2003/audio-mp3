@@ -635,6 +635,118 @@ func TestEncodeRoundTrip(t *testing.T) {
 		len(originalPCM), totalMP3, len(decodedPCM), compressionRatio)
 }
 
+// TestLameTagFrame tests Xing/LAME tag generation
+func TestLameTagFrame(t *testing.T) {
+	encoder, err := mp3.NewEncoder(&mp3.EncoderConfig{
+		SampleRate:    44100,
+		NumChannels:   2,
+		Bitrate:       128,
+		Quality:       2,
+		IsWriteVbrTag: true,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create encoder: %v", err)
+	}
+	defer encoder.Close()
+
+	// Encode some data
+	pcmData := generateSineWave(440, 44100, 2, 44100)
+	outBuf := make([]byte, encoder.EstimateOutBufBytes(len(pcmData)))
+
+	_, err = encoder.Encode(pcmData, outBuf)
+	if err != nil {
+		t.Fatalf("Encode failed: %v", err)
+	}
+
+	// Flush to finalize encoding
+	_, err = encoder.Flush(outBuf)
+	if err != nil {
+		t.Fatalf("Flush failed: %v", err)
+	}
+
+	// Get LAME tag
+	lameTag, err := encoder.GetLameTagFrame()
+	if err != nil {
+		t.Fatalf("GetLameTagFrame failed: %v", err)
+	}
+
+	if lameTag == nil {
+		t.Fatal("LAME tag is nil (should be generated)")
+	}
+
+	if len(lameTag) == 0 {
+		t.Fatal("LAME tag is empty")
+	}
+
+	// Verify tag contains "Info" or "Xing" marker
+	hasInfo := bytes.Contains(lameTag, []byte("Info"))
+	hasXing := bytes.Contains(lameTag, []byte("Xing"))
+	hasLame := bytes.Contains(lameTag, []byte("LAME"))
+
+	if !hasInfo && !hasXing {
+		t.Error("LAME tag missing Info/Xing marker")
+	}
+
+	if !hasLame {
+		t.Error("LAME tag missing LAME encoder marker")
+	}
+
+	t.Logf("✓ LAME tag: %d bytes, Info=%v, Xing=%v, LAME=%v",
+		len(lameTag), hasInfo, hasXing, hasLame)
+}
+
+// TestEncodeWithXingHeader tests that Xing/Info header is written correctly
+func TestEncodeWithXingHeader(t *testing.T) {
+	// Create a temporary file
+	tmpFile, err := os.CreateTemp("", "test_xing_*.mp3")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	tmpPath := tmpFile.Name()
+	defer os.Remove(tmpPath)
+
+	// Generate WAV data
+	wavData := generateWavFile(44100, 2, 44100*2) // 2 seconds
+	wavReader := bytes.NewReader(wavData)
+
+	// Encode to file (supports seeking)
+	totalBytes, totalFrames, sampleRate, err := mp3.EncodeFromWav(wavReader, tmpFile, &mp3.EncoderConfig{
+		Bitrate: 128,
+		Quality: 2,
+	})
+	tmpFile.Close()
+
+	if err != nil {
+		t.Fatalf("EncodeFromWav failed: %v", err)
+	}
+
+	if totalBytes == 0 {
+		t.Fatal("No MP3 data generated")
+	}
+
+	// Read back the MP3 file
+	mp3Data, err := os.ReadFile(tmpPath)
+	if err != nil {
+		t.Fatalf("Failed to read MP3 file: %v", err)
+	}
+
+	// Check for Info/Xing header (should be within first 200 bytes)
+	hasInfo := bytes.Contains(mp3Data[:200], []byte("Info"))
+	hasXing := bytes.Contains(mp3Data[:200], []byte("Xing"))
+	hasLame := bytes.Contains(mp3Data[:200], []byte("LAME"))
+
+	if !hasInfo && !hasXing {
+		t.Error("MP3 file missing Info/Xing header")
+	}
+
+	if !hasLame {
+		t.Error("MP3 file missing LAME encoder tag")
+	}
+
+	t.Logf("✓ MP3 with headers: %d bytes, %d frames, %dHz, Info=%v, Xing=%v, LAME=%v",
+		totalBytes, totalFrames, sampleRate, hasInfo, hasXing, hasLame)
+}
+
 // TestGetFrameNum tests frame number tracking
 func TestGetFrameNum(t *testing.T) {
 	encoder, err := mp3.NewEncoder(&mp3.EncoderConfig{
@@ -780,4 +892,19 @@ func abs(x int) int {
 		return -x
 	}
 	return x
+}
+
+// generateWavFile generates a complete WAV file with header
+func generateWavFile(sampleRate, channels, numSamples int) []byte {
+	pcmData := generateSineWave(440, sampleRate, channels, numSamples)
+
+	// Generate WAV header
+	header := mp3.GenerateWavHeader(len(pcmData), sampleRate, channels, 16)
+
+	// Combine header and PCM data
+	wavData := make([]byte, len(header)+len(pcmData))
+	copy(wavData, header)
+	copy(wavData[len(header):], pcmData)
+
+	return wavData
 }
