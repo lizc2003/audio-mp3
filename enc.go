@@ -212,10 +212,6 @@ func (enc *Encoder) initParams(c *EncoderConfig) error {
 	if errNo < 0 {
 		return toError(errNo)
 	}
-	errNo = C.lame_set_brate(handle, C.int(c.Bitrate))
-	if errNo < 0 {
-		return toError(errNo)
-	}
 	if c.VbrMode != VbrModeOff {
 		errNo = C.lame_set_VBR(handle, C.vbr_mode(c.VbrMode))
 		if errNo < 0 {
@@ -225,8 +221,18 @@ func (enc *Encoder) initParams(c *EncoderConfig) error {
 		if errNo < 0 {
 			return toError(errNo)
 		}
+		if c.VbrMode == VbrModeAbr {
+			errNo = C.lame_set_VBR_mean_bitrate_kbps(handle, C.int(c.Bitrate))
+			if errNo < 0 {
+				return toError(errNo)
+			}
+		}
 	} else {
 		errNo = C.lame_set_VBR(handle, C.vbr_mode(VbrModeOff))
+		if errNo < 0 {
+			return toError(errNo)
+		}
+		errNo = C.lame_set_brate(handle, C.int(c.Bitrate))
 		if errNo < 0 {
 			return toError(errNo)
 		}
