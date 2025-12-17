@@ -125,7 +125,7 @@ func TestDecodeVariousEncodings(t *testing.T) {
 			defer decoder.Close()
 
 			// Decode the entire file
-			pcmBuf := make([]byte, decoder.EstimateOutBufBytes())
+			pcmBuf := make([]byte, decoder.EstimateOutBufBytes(mp3.EstimateFrames))
 			chunk := make([]byte, 2048)
 			totalBytes := 0
 
@@ -194,7 +194,7 @@ func TestInvalidInput(t *testing.T) {
 	}
 	defer decoder.Close()
 
-	pcmBuf := make([]byte, decoder.EstimateOutBufBytes())
+	pcmBuf := make([]byte, decoder.EstimateOutBufBytes(mp3.EstimateFrames))
 
 	t.Run("EmptyInput", func(t *testing.T) {
 		emptyBuf := make([]byte, 0)
@@ -244,7 +244,7 @@ func BenchmarkDecode(b *testing.B) {
 			b.Fatal(err)
 		}
 
-		pcmBuf := make([]byte, decoder.EstimateOutBufBytes())
+		pcmBuf := make([]byte, decoder.EstimateOutBufBytes(mp3.EstimateFrames))
 		chunk := make([]byte, 2048)
 
 		for offset := 0; offset < len(mp3Data); offset += len(chunk) {

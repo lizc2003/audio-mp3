@@ -417,7 +417,7 @@ func TestEncodeMonoFiles(t *testing.T) {
 			defer decoder.Close()
 
 			var pcmData []byte
-			pcmBuf := make([]byte, decoder.EstimateOutBufBytes())
+			pcmBuf := make([]byte, decoder.EstimateOutBufBytes(mp3.EstimateFrames))
 			chunk := make([]byte, 2048)
 
 			for {
@@ -600,7 +600,7 @@ func TestEncodeRoundTrip(t *testing.T) {
 	defer decoder.Close()
 
 	var decodedPCM []byte
-	pcmBuf := make([]byte, decoder.EstimateOutBufBytes())
+	pcmBuf := make([]byte, decoder.EstimateOutBufBytes(mp3.EstimateFrames))
 	chunk := make([]byte, 2048)
 
 	mp3Reader := bytes.NewReader(mp3Buf[:totalMP3])

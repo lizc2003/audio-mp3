@@ -49,6 +49,10 @@ import (
 	"unsafe"
 )
 
+const (
+	EstimateFrames = 10
+)
+
 // Decoder represents an MP3 decoder instance wrapping mpg123.
 // It is NOT safe for concurrent use.
 type Decoder struct {
@@ -111,9 +115,9 @@ func (d *Decoder) Close() {
 	}
 }
 
-func (d *Decoder) EstimateOutBufBytes() int {
+func (d *Decoder) EstimateOutBufBytes(nFrames int) int {
 	// 1 frame: 1152 samples * 2 channels * 4 bytes = 9216 bytes
-	return (1152 * 2 * 4) * 10 // 10 frames
+	return (1152 * 2 * 4) * nFrames
 }
 
 // Decode
@@ -123,7 +127,7 @@ func (d *Decoder) Decode(in, out []byte) (n int, err error) {
 	if szIn == 0 {
 		return 0, errors.New("input buffer is empty")
 	}
-	if szOut < d.EstimateOutBufBytes() {
+	if szOut < d.EstimateOutBufBytes(EstimateFrames) {
 		return 0, errors.New("output buffer size is not enough")
 	}
 

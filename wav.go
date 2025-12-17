@@ -119,7 +119,7 @@ func DecodeToWav(inStream io.Reader, writer io.WriteSeeker) (totalBytes int, tot
 	}
 	defer decoder.Close()
 
-	pcmBuf := make([]byte, decoder.EstimateOutBufBytes())
+	pcmBuf := make([]byte, decoder.EstimateOutBufBytes(EstimateFrames))
 	chunk := make([]byte, 2048)
 
 	for {
