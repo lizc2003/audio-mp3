@@ -67,7 +67,7 @@ type Encoder struct {
 	handle      *C.lame_global_flags
 	remainData  []byte
 	NumChannels int
-	FrameSize   int
+	FrameLength int
 }
 
 func NewEncoder(c *EncoderConfig) (*Encoder, error) {
@@ -232,7 +232,7 @@ func (enc *Encoder) initParams(c *EncoderConfig) error {
 	if frameSize < 0 {
 		return toError(frameSize)
 	}
-	enc.FrameSize = int(frameSize)
+	enc.FrameLength = int(frameSize)
 
 	return nil
 }
