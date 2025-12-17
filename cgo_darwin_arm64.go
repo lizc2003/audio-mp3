@@ -3,5 +3,5 @@
 package mp3
 
 // #cgo LDFLAGS: -L${SRCDIR}/deps/darwin_arm64
-// #cgo LDFLAGS: -lmpg123
+// #cgo LDFLAGS: -lmpg123 -lmp3lame
 import "C"

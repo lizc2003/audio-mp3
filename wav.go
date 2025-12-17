@@ -11,6 +11,74 @@ const (
 	WavHeaderSize = 44
 )
 
+// EncodeFromWav encodes a WAV audio stream into mp3 format.
+// This function parses the WAV header to extract SampleRate and MaxChannels, overriding the values in config.
+func EncodeFromWav(wavStream io.Reader, writer io.Writer, config *EncoderConfig) (totalBytes int, totalFrames int, sampleRate int, err error) {
+	pcmSize, sampleRate, numChannels, bitsPerSample, err := ParseWavHeader(wavStream)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	if bitsPerSample != SampleBitDepth {
+		return 0, 0, 0, fmt.Errorf("unsupported bits per sample: %d (only 16-bit supported)", bitsPerSample)
+	}
+
+	config.SampleRate = sampleRate
+	config.NumChannels = numChannels
+	// Limit the reader to the data size to avoid reading trailing metadata as audio.
+	wavStream = io.LimitReader(wavStream, int64(pcmSize))
+
+	encoder, err := NewEncoder(config)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	defer encoder.Close()
+
+	// Buffer for reading input PCM data
+	chunkSize := 2048
+	inBuf := make([]byte, chunkSize)
+	outBuf := make([]byte, encoder.EstimateOutBufBytes(chunkSize))
+
+	for {
+		n, err := wavStream.Read(inBuf)
+		if n > 0 {
+			encodedBytes, encErr := encoder.Encode(inBuf[:n], outBuf)
+			if encErr != nil {
+				return 0, 0, 0, encErr
+			}
+			if encodedBytes > 0 {
+				totalBytes += encodedBytes
+				if _, wErr := writer.Write(outBuf[:encodedBytes]); wErr != nil {
+					return 0, 0, 0, wErr
+				}
+			}
+		}
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return 0, 0, 0, err
+		}
+	}
+
+	encodedBytes, flushErr := encoder.Flush(outBuf)
+	if flushErr != nil {
+		return 0, 0, 0, flushErr
+	}
+	if encodedBytes > 0 {
+		totalBytes += encodedBytes
+		if _, wErr := writer.Write(outBuf[:encodedBytes]); wErr != nil {
+			return 0, 0, 0, wErr
+		}
+	}
+
+	totalFrames, err = encoder.GetFrameNum()
+	if err != nil {
+		return 0, 0, 0, err
+	}
+
+	return totalBytes, totalFrames, sampleRate, nil
+}
+
 // DecodeToWav decodes a mp3 stream to WAV format and writes it to the output writer.
 func DecodeToWav(inStream io.Reader, writer io.WriteSeeker) (totalBytes int, totalSamples int, sampleRate int, err error) {
 	decoder, err := NewDecoder()
@@ -101,4 +169,62 @@ func GenerateWavHeader(pcmSize int, sampleRate int, numChannels int, bitsPerSamp
 	binary.LittleEndian.PutUint32(header[40:44], uint32(pcmSize))
 
 	return header
+}
+
+func ParseWavHeader(wavStream io.Reader) (pcmSize int, sampleRate int, numChannels int, bitsPerSample int, err error) {
+	var (
+		riffHeader    [12]byte
+		chunkHeader   [8]byte
+		fmtChunkFound bool
+	)
+
+	// Read RIFF header
+	if _, err := io.ReadFull(wavStream, riffHeader[:]); err != nil {
+		return 0, 0, 0, 0, fmt.Errorf("read RIFF header failed: %w", err)
+	}
+	if string(riffHeader[0:4]) != "RIFF" || string(riffHeader[8:12]) != "WAVE" {
+		return 0, 0, 0, 0, errors.New("invalid WAV header: missing RIFF/WAVE")
+	}
+
+	// Loop chunks
+	for {
+		if _, err := io.ReadFull(wavStream, chunkHeader[:]); err != nil {
+			return 0, 0, 0, 0, fmt.Errorf("read chunk header failed: %w", err)
+		}
+		chunkID := string(chunkHeader[0:4])
+		chunkSize := binary.LittleEndian.Uint32(chunkHeader[4:8])
+
+		if chunkID == "fmt " {
+			if chunkSize < 16 {
+				return 0, 0, 0, 0, fmt.Errorf("invalid fmt chunk size: %d", chunkSize)
+			}
+			fmtData := make([]byte, chunkSize)
+			if _, err := io.ReadFull(wavStream, fmtData); err != nil {
+				return 0, 0, 0, 0, fmt.Errorf("read fmt chunk failed: %w", err)
+			}
+
+			audioFormat := binary.LittleEndian.Uint16(fmtData[0:2])
+			numChannels = int(binary.LittleEndian.Uint16(fmtData[2:4]))
+			sampleRate = int(binary.LittleEndian.Uint32(fmtData[4:8]))
+			bitsPerSample = int(binary.LittleEndian.Uint16(fmtData[14:16]))
+
+			if audioFormat != 1 {
+				return 0, 0, 0, 0, fmt.Errorf("unsupported audio format: %d (only PCM supported)", audioFormat)
+			}
+			fmtChunkFound = true
+		} else if chunkID == "data" {
+			if !fmtChunkFound {
+				return 0, 0, 0, 0, errors.New("data chunk found before fmt chunk")
+			}
+			// We found data chunk, stop parsing.
+			pcmSize = int(chunkSize)
+			break
+		} else {
+			// Skip other chunks
+			if _, err := io.CopyN(io.Discard, wavStream, int64(chunkSize)); err != nil {
+				return 0, 0, 0, 0, fmt.Errorf("skip chunk %s failed: %w", chunkID, err)
+			}
+		}
+	}
+	return pcmSize, sampleRate, numChannels, bitsPerSample, nil
 }

@@ -112,8 +112,8 @@ func (d *Decoder) Close() {
 }
 
 func (d *Decoder) EstimateOutBufBytes() int {
-	// 1 frame: 1152 samples * 8 channels * 4 bytes = 36864 bytes
-	return (1152 * 8 * 4) * 5 // 5 frames
+	// 1 frame: 1152 samples * 2 channels * 4 bytes = 9216 bytes
+	return (1152 * 2 * 4) * 10 // 10 frames
 }
 
 // Decode
